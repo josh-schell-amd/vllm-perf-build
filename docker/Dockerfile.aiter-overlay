@@ -20,12 +20,10 @@ ARG VLLM_COMMIT=unknown
 # Fail early rather than silently shipping the stock AITER.
 RUN test -n "${AITER_WHEEL_URL}" || (echo "AITER_WHEEL_URL build-arg is required" >&2; exit 1)
 
-# Drop the AITER wheel baked into the nightly, then install the requested one.
-# vLLM ROCm nightlies ship it under the PyPI dist name amd-aiter (not aiter).
-# --no-deps: the base image already satisfies AITER's dependencies; we only want
-# to swap the AITER wheel itself, not perturb torch/triton/etc.
-RUN python3 -m pip uninstall -y amd-aiter aiter || true \
-    && python3 -m pip install --no-deps "${AITER_WHEEL_URL}" \
+# Installed exactly as vLLM CI's aiter-nightly-overlay.sh does, so both test the
+# same install: pip replaces the bundled amd-aiter itself and adds any
+# dependency the new wheel needs that the image lacks.
+RUN python3 -m pip install --no-cache-dir "${AITER_WHEEL_URL}" \
     && python3 -m pip show amd-aiter | grep -i '^Version:'
 
 RUN mkdir -p /app \

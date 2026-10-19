@@ -1,32 +1,28 @@
 # vllm-perf-build
 
-Buildkite pipeline that builds a vLLM ROCm docker image from any vLLM PR, branch, or
-commit and publishes it to [`rocm/vllm-dev`](https://hub.docker.com/r/rocm/vllm-dev).
+Buildkite pipeline that builds vLLM ROCm docker images and publishes them to
+[`rocm/vllm-dev`](https://hub.docker.com/r/rocm/vllm-dev).
 
 ## Flows
 
-The one `vllm-perf-build` pipeline runs one of two flows, chosen by `FLOW` on the
-build:
+`FLOW` on the build picks what runs:
 
 | `FLOW` | Runs |
 | --- | --- |
-| unset | Build vLLM from source for a PR, branch or commit (below). Takes hours; with `BUILD_BASE=true`, much longer. |
-| `aiter-nightly` | Overlay the newest matching AITER nightly wheel onto the latest published vLLM ROCm nightly. No compile. See [AITER nightly](#aiter-nightly-overlay-onto-the-published-nightly). |
+| unset | Build vLLM from source for a PR, branch or commit. Takes hours; much longer with `BUILD_BASE=true`. |
+| `aiter-nightly` | Install the newest matching AITER nightly wheel over the latest vLLM ROCm nightly. No compile. See [AITER nightly](#aiter-nightly). |
 
-Any other value fails the build at its first step, so a typo cannot start a
-from-source build by accident.
+Any other value fails the first step, so a typo cannot start a source build.
 
-## Triggering a build
+## Building from source
 
-Start a build on the Buildkite pipeline and set **one** of these environment variables:
+Set **one** of these on the build (none builds `main`):
 
 | Variable | Example | Builds |
 | --- | --- | --- |
-| `VLLM_PR` | `12345` | `refs/pull/12345/head` on `vllm-project/vllm` — works for fork PRs too |
+| `VLLM_PR` | `12345` | `refs/pull/12345/head` on `vllm-project/vllm`, fork PRs included |
 | `VLLM_BRANCH` | `my-feature` | that branch |
-| `VLLM_COMMIT` | `a1b2c3d...` | that exact commit |
-
-With none set, the pipeline builds `main`.
+| `VLLM_COMMIT` | `a1b2c3d...` | that commit |
 
 Via the API:
 
@@ -36,10 +32,7 @@ curl -X POST "https://api.buildkite.com/v2/organizations/<org>/pipelines/vllm-pe
   -d '{"commit":"HEAD","branch":"main","env":{"VLLM_PR":"12345"}}'
 ```
 
-## Resulting image
-
-Tags are derived from the ref plus the resolved short sha, so every build is traceable
-to an exact vLLM commit:
+The image tag is the ref plus the resolved short sha:
 
 | Trigger | Tag |
 | --- | --- |
@@ -47,40 +40,33 @@ to an exact vLLM commit:
 | `VLLM_BRANCH=my-feature` | `rocm/vllm-dev:my-feature-<short-sha>` |
 | `VLLM_COMMIT=a1b2c3d…` | `rocm/vllm-dev:commit-<short-sha>` |
 
-Set `IMAGE_TAG` to override the tag entirely, or `EXTRA_IMAGE_TAGS` (space-separated)
-to publish additional tags alongside the primary one.
+`IMAGE_TAG` replaces the tag; `EXTRA_IMAGE_TAGS` (space-separated) adds more.
 
 ## Configuration
 
-Defaults live in the scripts, not in a pipeline-level `env:` block — an `env:` block in
-the uploaded pipeline overrides variables set on the build at trigger time, which makes
-options impossible to turn on from the UI. Set any of these as build environment
-variables:
+Defaults live in the scripts: a pipeline-level `env:` block would override
+variables set when the build is triggered.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FLOW` | — | Which flow to run; see [Flows](#flows). |
-| `VLLM_REPO` | `https://github.com/vllm-project/vllm.git` | Source repo. Leave as upstream for PRs — even fork PRs are fetched from here. |
-| `BASE_IMAGE` | `rocm/vllm-dev:base` | Prebuilt ROCm/PyTorch base, pulled rather than built. |
-| `DOCKER_TARGET` | `vllm-openai` | Dockerfile stage. `final` for the runtime without the serving entrypoint, `test` for the CI test image. |
-| `PYTORCH_ROCM_ARCH` | `gfx942;gfx950` | GPU targets. Each arch is a full HIP kernel compile pass. |
+| `FLOW` | — | See [Flows](#flows). |
+| `VLLM_REPO` | `https://github.com/vllm-project/vllm.git` | Source repo. Keep upstream for PRs, including fork PRs. |
+| `BASE_IMAGE` | `rocm/vllm-dev:base` | ROCm/PyTorch base, pulled rather than built. |
+| `DOCKER_TARGET` | `vllm-openai` | Dockerfile stage: `final` (no serving entrypoint) or `test` (CI test image). |
+| `PYTORCH_ROCM_ARCH` | `gfx942;gfx950` | GPU targets. Each is a full HIP compile pass. |
 | `MAX_JOBS` | `$(nproc)` | Build parallelism. |
 | `IMAGE_REPO` | `rocm/vllm-dev` | Destination repo. |
-| `DOCKERHUB_USER` | `jpvillam` | Docker Hub account used to push. |
-| `DOCKERHUB_TOKEN_SECRET` | `dockerhub_token` | Name of the Buildkite secret holding the access token. |
-| `PUSH_IMAGE` | `true` | Set `false` to build only, as a "does this PR still build" gate. Ignored when `TRIGGER_PERF_EVAL=true`. |
+| `DOCKERHUB_USER` | `jpvillam` | Docker Hub push account. |
+| `DOCKERHUB_TOKEN_SECRET` | `dockerhub_token` | Buildkite secret holding the token. |
+| `PUSH_IMAGE` | `true` | `false` builds only. Ignored when `TRIGGER_PERF_EVAL=true`. |
 | `EXTRA_BUILD_ARGS` | — | Space-separated extra `--build-arg`s, e.g. `NIC_BACKEND=none USE_SCCACHE=1`. |
-| `CLONE_DEPTH` | `1` | Shallow clone depth for the vLLM checkout. |
+| `CLONE_DEPTH` | `1` | Clone depth of the vLLM checkout. |
 
-## Swapping AITER (building the base image)
+## Swapping AITER (base image build)
 
-AITER is cloned and compiled inside **`Dockerfile.rocm_base`**, not `Dockerfile.rocm`.
-It's baked into `rocm/vllm-dev:base`, which the main build normally just pulls. So
-changing AITER means rebuilding the base image — passing `AITER_BRANCH` to the main
-build would be silently ignored, since `Dockerfile.rocm` has no such ARG.
-
-Set `BUILD_BASE=true` and the pipeline builds a base first, then builds vLLM on top of
-it automatically:
+AITER is compiled in `Dockerfile.rocm_base` and baked into `rocm/vllm-dev:base`;
+`Dockerfile.rocm` has no `AITER_BRANCH`, so changing AITER means rebuilding the base.
+`BUILD_BASE=true` builds a base, then vLLM on top of it:
 
 ```
 VLLM_COMMIT=9cc347ae1d5b6f5e7d0a1a2c3d4e5f60718293a4
@@ -88,36 +74,31 @@ BUILD_BASE=true
 AITER_BRANCH=v0.1.20
 ```
 
-The base is tagged `rocm/vllm-dev:base-<vllm-short-sha>-aiter-<aiter-ref>` and pushed,
-then handed to the main build via build meta-data. Because the tag encodes both inputs,
-**a base that already exists is reused rather than rebuilt** — so a second build with
-the same vLLM commit and AITER ref skips straight to the vLLM build.
+The base is pushed as `rocm/vllm-dev:base-<vllm-short-sha>-aiter-<aiter-ref>`. If that
+tag already exists it is reused, not rebuilt.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BUILD_BASE` | `false` | Master switch for the base build. |
-| `AITER_BRANCH` | — | AITER tag or branch. Empty keeps the Dockerfile's own pin. |
+| `BUILD_BASE` | `false` | Build the base first. |
+| `AITER_BRANCH` | — | AITER tag or branch. Empty keeps the Dockerfile's pin. |
 | `AITER_REPO` | — | AITER repo, e.g. a fork. |
-| `FA_BRANCH`, `TRITON_BRANCH`, `PYTORCH_BRANCH`, `MORI_BRANCH` | — | Same idea for the other pinned deps. |
-| `BASE_IMAGE_TAG` | derived | Override the computed base tag entirely. |
-| `BASE_FORCE_REBUILD` | `false` | Rebuild even if the tag already exists. |
-| `EXTRA_BASE_BUILD_ARGS` | — | Space-separated extra `--build-arg`s for the base build. |
+| `FA_BRANCH`, `TRITON_BRANCH`, `PYTORCH_BRANCH`, `MORI_BRANCH` | — | Same, for the other pinned deps. |
+| `BASE_IMAGE_TAG` | derived | Override the base tag. |
+| `BASE_FORCE_REBUILD` | `false` | Rebuild even if the tag exists. |
+| `EXTRA_BASE_BUILD_ARGS` | — | Space-separated extra `--build-arg`s for the base. |
 
-Two constraints inherited from `Dockerfile.rocm_base`:
+Limits from `Dockerfile.rocm_base`:
 
-- It runs `git clone --branch ${AITER_BRANCH}`, which accepts a **tag or branch only**.
-  A bare commit sha will not clone — tag it in a fork if you need one.
-- `AITER_ROCM_ARCH` is an `ENV` (`gfx942;gfx950`), not an `ARG`, so `--build-arg`
-  cannot change AITER's arch list.
+- `AITER_BRANCH` goes to `git clone --branch`, so it must be a **tag or branch**, not
+  a sha. Tag it in a fork if needed.
+- `AITER_ROCM_ARCH` is an `ENV` (`gfx942;gfx950`), so `--build-arg` cannot change it.
 
-The base build compiles PyTorch, Triton, flash-attention, AITER and mori from source.
-It is *much* longer than the vLLM build — the step allows 10 hours. If you already have
-a suitable base image, skip all of this and just set `BASE_IMAGE` instead.
+The base compiles PyTorch, Triton, flash-attention, AITER and mori from source; the
+step allows 10 hours. If you already have a suitable base, set `BASE_IMAGE` instead.
 
-## Triggering perf-eval downstream
+## Triggering perf-eval
 
-Off by default. Set `TRIGGER_PERF_EVAL=true` on a build and, once the image is pushed,
-the pipeline triggers the `perf-eval` pipeline against it:
+`TRIGGER_PERF_EVAL=true` triggers the `perf-eval` pipeline on the pushed image:
 
 ```
 TRIGGER_PERF_EVAL=true
@@ -125,116 +106,81 @@ PERF_EVAL_WORKLOADS=llama3-8b-throughput,mixtral-latency
 PERF_EVAL_RUN_TYPE=rc
 ```
 
-perf-eval receives these environment variables:
+perf-eval receives only these; other variables on this build do not reach it:
 
 | Variable | Value |
 | --- | --- |
-| `VLLM_IMAGE` | the image just pushed, e.g. `rocm/vllm-dev:pr-12345-abc123de` |
-| `VLLM_COMMIT` | full vLLM sha the image was built from |
-| `WORKLOADS` | the requested workloads, comma-separated |
-| `PERF_EVAL_RUN_TYPE` | the run's label, when one was set |
-| `UPSTREAM_BUILD_URL` | link back to the build that produced the image |
-
-A trigger step passes only the variables it names, so anything perf-eval should
-see has to be in that list. Setting a variable on *this* build does not reach
-the downstream one.
+| `VLLM_IMAGE` | the pushed image, e.g. `rocm/vllm-dev:pr-12345-abc123de` |
+| `VLLM_COMMIT` | full vLLM sha |
+| `WORKLOADS` | requested workloads, comma-separated |
+| `PERF_EVAL_RUN_TYPE` | run label, if set |
+| `UPSTREAM_BUILD_URL` | this build |
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TRIGGER_PERF_EVAL` | `false` | Master switch. Always pushes the image, even with `PUSH_IMAGE=false`, since perf-eval pulls it. |
+| `TRIGGER_PERF_EVAL` | `false` | Master switch. Also forces the image push, since perf-eval pulls it. |
 | `PERF_EVAL_PIPELINE` | `perf-eval` | Downstream pipeline slug. |
 | `PERF_EVAL_WORKLOADS` | — | Comma- or space-separated workload names. |
-| `PERF_EVAL_FANOUT` | `false` | `true` triggers one perf-eval build per workload instead of one build receiving the whole list. |
-| `PERF_EVAL_ASYNC` | `true` | `true` fires and forgets; `false` makes this build wait for perf-eval and inherit its pass/fail. |
-| `PERF_EVAL_BRANCH` | `main` | Branch of the perf-eval repo to build. |
-| `PERF_EVAL_RUN_TYPE` | — | Labels the run (`nightly`, `rc`, `aiter-nightly`, ...) so the dashboard can group like with like. Unset means perf-eval files it under `adhoc`. |
-| `PERF_EVAL_IMAGE_VAR` | `VLLM_IMAGE` | Rename if perf-eval reads a different variable for the image. |
-| `PERF_EVAL_WORKLOAD_VAR` | `WORKLOADS` | Rename if perf-eval reads a different variable for the workloads. |
+| `PERF_EVAL_FANOUT` | `false` | `true`: one perf-eval build per workload. |
+| `PERF_EVAL_ASYNC` | `true` | `false`: wait for perf-eval and inherit its result. |
+| `PERF_EVAL_BRANCH` | `main` | perf-eval repo branch. |
+| `PERF_EVAL_RUN_TYPE` | — | Run label (`nightly`, `rc`, `aiter-nightly`, ...) for the dashboard. Unset is `adhoc`. |
+| `PERF_EVAL_IMAGE_VAR` | `VLLM_IMAGE` | Variable perf-eval reads the image from. |
+| `PERF_EVAL_WORKLOAD_VAR` | `WORKLOADS` | Variable perf-eval reads the workloads from. |
 
-Because the image tag isn't known until the resolve step has run, and a `trigger` step's
-`build.env` is static YAML, the trigger step is generated at runtime by
-`.buildkite/scripts/trigger_perf_eval.sh` and uploaded. Workload names and the run type
-are restricted to `[A-Za-z0-9._/-]` so they cannot break out of the generated YAML.
-`.buildkite/scripts/test_trigger_perf_eval.sh` exercises that script against a stubbed
-`buildkite-agent` and needs no Buildkite access; run it directly.
+The image tag is only known at runtime, so `.buildkite/scripts/trigger_perf_eval.sh`
+generates and uploads the trigger step. Workload names and the run type are limited to
+`[A-Za-z0-9._/-]`. `.buildkite/scripts/test_trigger_perf_eval.sh` tests it against a
+stubbed `buildkite-agent`; run it directly.
 
-## AITER nightly (overlay onto the published nightly)
+## AITER nightly
 
-`.buildkite/pipeline.aiter-nightly.yml` is a separate, lightweight flow for the
-common "how does AITER main look tonight?" question. Rather than rebuilding the
-ROCm base to swap AITER (the `BUILD_BASE` path above, ~10h), it:
+`FLOW=aiter-nightly` on a `vllm-perf-build` build uploads
+`.buildkite/pipeline.aiter-nightly.yml` instead of the source build. It:
 
-1. resolves the newest published `vllm/vllm-openai-rocm:nightly-<sha>` (or a
-   pinned `VLLM_COMMIT`),
-2. pulls that nightly and, inside it, picks the newest AITER nightly wheel built
-   for exactly its ROCm, torch and Python (see below),
-3. builds `docker/Dockerfile.aiter-overlay` on top of it, which `pip install`s
-   that wheel over the bundled `amd-aiter`, exactly as vLLM CI's
-   `aiter-nightly-overlay.sh` does (no kernel compile, so just the pull/install),
-4. pushes to `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`, and
-5. triggers perf-eval via the same `trigger_perf_eval.sh` as the main pipeline.
+1. resolves the newest `vllm/vllm-openai-rocm:nightly-<sha>` (or `VLLM_COMMIT`),
+2. picks the AITER nightly wheel built for that image's ROCm, torch and Python,
+3. `pip install`s it over the image, as vLLM CI's `aiter-nightly-overlay.sh` does,
+4. pushes `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`,
+5. triggers perf-eval as above.
 
-### Wheel matching
-
-The wheel is picked by vLLM's own
+The wheel is picked by vLLM's
 [`select_aiter_nightly_wheel.py`](https://github.com/vllm-project/vllm/blob/main/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py),
-the same selector vLLM CI runs for its `AITER_NIGHTLY=1` builds, so both apply the
-same matching rules. It takes the newest matching wheel at the moment it runs, so
-this flow and vLLM CI can still land on different wheels if a new AITER nightly is
-published between their runs. `build_aiter_overlay.sh` fetches the selector from
-the same vLLM commit as the nightly image and runs it inside that image, where
-it reads the image's ROCm, torch and Python and takes the newest wheel on
-<https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/> built for
-exactly that combination.
+the selector vLLM CI uses for `AITER_NIGHTLY=1`, fetched at the image's vLLM commit and
+run inside the image. It takes the newest exact match on
+<https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/>, so this flow and
+vLLM CI can differ if a new wheel lands between their runs.
 
-If no wheel matches, the overlay step stops with exit status 10 and an error
-annotation listing what the index does have, e.g.
+| Exit | Meaning |
+| --- | --- |
+| 10 | No wheel matches. The annotation lists what the index has, e.g. `No AITER nightly for rocm10.0.0/torch2.12/cp312. Available: rocm10.0.0/torch2.13/cp312, ...` |
+| 11 | The wheel does not install. |
+| 1 | Fetch or registry error. Retried once, with the same wheel. |
 
-```
-No AITER nightly for rocm10.0.0/torch2.12/cp312. Available: rocm10.0.0/torch2.13/cp312, rocm7.2.3/torch2.12/cp312, ...
-```
+On 10 or 11 nothing is pushed and perf-eval is not triggered, so a night without a
+compatible wheel gives no numbers rather than wrong ones.
 
-Nothing is built or pushed and perf-eval is not triggered, so a night with no
-compatible wheel produces no benchmark numbers rather than numbers from an AITER
-compiled against a different torch or ROCm. If the wheel matches but does not
-install, the step exits 11. Neither is retried. Exit 1 (a failed fetch or
-registry error) is retried once, and a retry reinstalls the wheel the first
-attempt chose, not a newer nightly.
+- **Manual test:** `FLOW=aiter-nightly`. Add `PUSH_IMAGE=false`, without
+  `TRIGGER_PERF_EVAL`, for a build-only smoke test.
+- **Nightly:** a Schedule (`0 7 * * *`) with `FLOW=aiter-nightly` and
+  `TRIGGER_PERF_EVAL=true`.
 
-This is **not a separate pipeline**. `.buildkite/pipeline.yml` doubles as a
-dispatcher: setting `FLOW=aiter-nightly` on a build of the existing
-`vllm-perf-build` pipeline uploads the overlay flow instead of the
-vLLM-from-source build. No new Buildkite pipeline or settings change needed.
-
-- **Manual test:** New Build on `vllm-perf-build` with `FLOW=aiter-nightly`
-  (add `PUSH_IMAGE=false`, without `TRIGGER_PERF_EVAL`, for a build-only smoke
-  test).
-- **Nightly:** a Schedule (`0 7 * * *`) whose env sets `FLOW=aiter-nightly` and
-  `TRIGGER_PERF_EVAL=true`. With nothing else set it resolves the newest nightly
-  and the newest AITER wheel on its own.
-
-perf-eval reads the image from `VLLM_IMAGE` (the default here) and applies its
-own default workload set, so no `PERF_EVAL_WORKLOADS` is needed. This flow also
-pins `PERF_EVAL_BRANCH` to `micah/migrate-vllm-dashboard-nightly` (where the
-nightly-dashboard migration lives) instead of `main`; override it on the build
-if that changes.
+perf-eval runs its default workloads.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit (full SHA; the AITER selector is fetched at it, so it must be 2026-10-12 or later); otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
-| `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
-| `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
-| `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
+| `VLLM_COMMIT` | newest nightly | Pin the nightly (full SHA, 2026-10-12 or later, since the selector is fetched at it). |
+| `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Nightly repo to overlay onto. |
+| `OVERLAY_BASE_IMAGE` | derived | Override the base image (skips the lookup). |
+| `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the tag. |
 | `PUSH_IMAGE` | `true` | `false` builds only. Ignored when `TRIGGER_PERF_EVAL=true`. |
-| `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval repo branch to build (defaulted for this flow, not `main`). |
+| `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval branch with the nightly-dashboard work. |
 
-Perf-eval is otherwise wired exactly as in the section above —
-`TRIGGER_PERF_EVAL`, `PERF_EVAL_WORKLOADS`, `PERF_EVAL_FANOUT`, etc. all apply.
+The other perf-eval variables apply as above.
 
 ## Setup
 
-1. Create the pipeline in Buildkite pointing at this repo, with **Pipeline Settings ->
-   Steps** set to:
+1. Create the Buildkite pipeline on this repo with **Pipeline Settings -> Steps**:
 
    ```yaml
    steps:
@@ -244,51 +190,33 @@ Perf-eval is otherwise wired exactly as in the section above —
          queue: amd-cpu
    ```
 
-   The `agents` block is required. This bootstrap step runs before Buildkite has read
-   the repo, so it does *not* inherit the `agents:` block in `.buildkite/pipeline.yml`
-   — without it the job goes to the default queue and will sit unstarted if nothing is
-   listening there.
+   Keep the `agents` block: this step runs before the repo is read, so it does not
+   inherit `pipeline.yml`'s queue and would wait on the default queue.
 
-2. Create a Docker Hub access token with **Read & Write** scope on `rocm/vllm-dev`, and
-   store it as a Buildkite secret named `dockerhub_token`:
+2. Store a Docker Hub token with **Read & Write** on `rocm/vllm-dev` as the Buildkite
+   secret `dockerhub_token` (Pipeline Settings -> Secrets). Agents without the secrets
+   backend can export `DOCKERHUB_TOKEN` from an `environment` hook instead; it takes
+   precedence.
 
-   ```bash
-   # Buildkite UI: Pipeline Settings -> Secrets -> New Secret
-   # key: dockerhub_token   value: <the token>
-   ```
-
-   The build reads it with `buildkite-agent secret get dockerhub_token`. If your agents
-   are self-hosted and don't have the Buildkite secrets backend available, export
-   `DOCKERHUB_TOKEN` from an agent `environment` hook instead — the script prefers that
-   variable when present, so no pipeline change is needed.
-
-3. Confirm the agents in the `amd-cpu` queue have a working docker daemon and enough
-   free disk (see below).
+3. Make sure the `amd-cpu` agents have a working docker daemon and plenty of disk.
 
 ## How it works
 
-`.buildkite/scripts/resolve_ref.sh` turns the requested PR/branch into an immutable
-commit sha with `git ls-remote`, then records the repo, ref, commit, and image tag in
-Buildkite meta-data. Pinning up front means a branch that moves mid-build cannot change
-what actually ships under the tag.
+`.buildkite/scripts/resolve_ref.sh` pins the PR or branch to a commit with
+`git ls-remote` and records the repo, ref, commit and tag in meta-data, so a branch
+that moves mid-build cannot change what ships.
 
-`.buildkite/scripts/build_and_push.sh` fetches that exact commit, builds
-`docker/Dockerfile.rocm` from it with `REMOTE_VLLM=0` (so the image is built from the
-checked-out source rather than a clone performed inside the Dockerfile), then pushes.
-It falls back to a root-level `Dockerfile.rocm` for older vLLM commits, before the
-Dockerfiles moved under `docker/`.
+`.buildkite/scripts/build_and_push.sh` fetches that commit, builds
+`docker/Dockerfile.rocm` with `REMOTE_VLLM=0` (from the checkout, not a clone inside
+the Dockerfile), and pushes. Older commits use the root-level `Dockerfile.rocm`.
 
-## Note on build cost
+## Build cost
 
-Even with `BASE_IMAGE` pulled rather than built, the remaining work — HIP kernel
-compilation of vLLM's `csrc`, plus the Rust frontend and any NIXL/RoCSHMEM/DeepEP
-stages — is heavy. Expect a long build and a large disk footprint.
+Even with a pulled base, the HIP compile of `csrc`, the Rust frontend and the
+NIXL/RoCSHMEM/DeepEP stages make for a long build and a large disk footprint. Levers,
+roughly by payoff:
 
-If builds turn out to be too slow or hit disk limits, the levers, roughly in order of
-payoff:
-
-- Narrow `PYTORCH_ROCM_ARCH` to just the arch you actually test on (`gfx942`).
-- Set `EXTRA_BUILD_ARGS="NIC_BACKEND=none"` to skip the networking stages.
-- Enable sccache against a shared S3 bucket via `USE_SCCACHE=1` plus the
-  `SCCACHE_*` build args the Dockerfile accepts.
-- Move the `build` step to a larger queue and leave orchestration on the small one.
+- Narrow `PYTORCH_ROCM_ARCH` to the arch you test on (`gfx942`).
+- `EXTRA_BUILD_ARGS="NIC_BACKEND=none"` skips the networking stages.
+- `USE_SCCACHE=1` plus the Dockerfile's `SCCACHE_*` build args, against a shared S3 bucket.
+- Run the `build` step on a larger queue and keep orchestration on the small one.

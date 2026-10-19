@@ -185,8 +185,7 @@ published between their runs. `build_aiter_overlay.sh` fetches the selector from
 the same vLLM commit as the nightly image and runs it inside that image, where
 it reads the image's ROCm, torch and Python and takes the newest wheel on
 <https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/> built for
-exactly that combination. A wheel pinned with `AITER_WHEEL_URL` is checked the
-same way.
+exactly that combination.
 
 If no wheel matches, the overlay step stops with exit status 10 and an error
 annotation listing what the index does have, e.g.
@@ -224,10 +223,8 @@ if that changes.
 | `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit (full SHA; the AITER selector is fetched at it, so it must be 2026-10-12 or later); otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
-| `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Must be an AITER nightly wheel, and is still rejected if it does not fit the base image. |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
 | `PUSH_IMAGE` | `true` | `false` builds only, and cannot be combined with `TRIGGER_PERF_EVAL=true`. |
-| `PULL_BASE` | `true` | Pull the nightly before building (fails fast on a bad ref). |
 | `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval repo branch to build (defaulted for this flow, not `main`). |
 
 Perf-eval is otherwise wired exactly as in the section above —

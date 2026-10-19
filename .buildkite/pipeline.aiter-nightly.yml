@@ -19,9 +19,8 @@
 # perf-eval reads VLLM_IMAGE and uses its own default workloads, so no
 # PERF_EVAL_WORKLOADS is needed.
 #
-# Common overrides (set on the build / schedule): VLLM_COMMIT, AITER_WHEEL_URL,
-# IMAGE_TAG, PUSH_IMAGE,
-# TRIGGER_PERF_EVAL, PERF_EVAL_BRANCH, PERF_EVAL_WORKLOADS, PERF_EVAL_FANOUT,
+# Common overrides (set on the build / schedule): VLLM_COMMIT, IMAGE_TAG,
+# PUSH_IMAGE, TRIGGER_PERF_EVAL, PERF_EVAL_BRANCH, PERF_EVAL_WORKLOADS, PERF_EVAL_FANOUT,
 # PERF_EVAL_RUN_TYPE. See README.md.
 #
 # NB: because pipeline.yml uploads this file as a *nested* pipeline, top-level

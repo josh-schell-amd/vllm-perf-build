@@ -31,15 +31,15 @@ PERF_EVAL_FANOUT="${PERF_EVAL_FANOUT:-false}"
 # inherits its pass/fail.
 PERF_EVAL_ASYNC="${PERF_EVAL_ASYNC:-true}"
 PERF_EVAL_BRANCH="${PERF_EVAL_BRANCH:-main}"
+# Labels the downstream run ("nightly", "rc", "aiter-nightly", ...) so the
+# dashboard can group like with like. A trigger step passes only what it names
+# here, so setting this on *this* build is not enough to reach perf-eval.
+# Unset leaves it off the build, and perf-eval files the run under "adhoc".
+PERF_EVAL_RUN_TYPE="${PERF_EVAL_RUN_TYPE:-}"
 # Names of the env vars perf-eval expects. Override if that pipeline reads
 # something other than these.
 PERF_EVAL_IMAGE_VAR="${PERF_EVAL_IMAGE_VAR:-VLLM_IMAGE}"
 PERF_EVAL_WORKLOAD_VAR="${PERF_EVAL_WORKLOAD_VAR:-WORKLOADS}"
-# Run type to forward to perf-eval (e.g. set on the scheduled build). Empty ->
-# not sent, so perf-eval's own default applies. Passed through under the same
-# name by default; override PERF_EVAL_RUN_TYPE_VAR if perf-eval reads another.
-PERF_EVAL_RUN_TYPE="${PERF_EVAL_RUN_TYPE:-}"
-PERF_EVAL_RUN_TYPE_VAR="${PERF_EVAL_RUN_TYPE_VAR:-PERF_EVAL_RUN_TYPE}"
 
 image_ref="$(buildkite-agent meta-data get image-ref)"
 commit="$(buildkite-agent meta-data get vllm-commit)"
@@ -48,24 +48,33 @@ short_commit="${commit:0:8}"
 # Workloads may be comma- or whitespace-separated.
 read -r -a workloads <<< "$(printf '%s' "$PERF_EVAL_WORKLOADS" | tr ',' ' ' | tr -s '[:space:]' ' ')"
 
-# These names are interpolated into generated YAML, so keep them to a charset
+# perf-eval splits WORKLOADS on commas and newlines only, so hand the list back
+# as commas. Joining on spaces (the default for "${array[*]}") arrives there as
+# one unmatchable name and the build generates no workload steps at all.
+join_commas() {
+  local IFS=','
+  echo "$*"
+}
+
+# These values are interpolated into generated YAML, so keep them to a charset
 # that cannot break out of a quoted scalar.
-for w in "${workloads[@]:-}"; do
-  [[ -z "$w" ]] && continue
-  if [[ ! "$w" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+require_safe() {
+  local kind="$1" value="$2"
+  if [[ ! "$value" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     echo "^^^ +++"
-    echo "Invalid workload name '${w}'." >&2
+    echo "Invalid ${kind} '${value}'." >&2
     echo "Allowed characters: letters, digits, and . _ / -" >&2
     exit 1
   fi
+}
+
+for w in "${workloads[@]:-}"; do
+  [[ -z "$w" ]] && continue
+  require_safe "workload name" "$w"
 done
 
-# Same reasoning as workloads: this is interpolated into generated YAML.
-if [[ -n "$PERF_EVAL_RUN_TYPE" && ! "$PERF_EVAL_RUN_TYPE" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-  echo "^^^ +++"
-  echo "Invalid PERF_EVAL_RUN_TYPE '${PERF_EVAL_RUN_TYPE}'." >&2
-  echo "Allowed characters: letters, digits, and . _ / -" >&2
-  exit 1
+if [[ -n "$PERF_EVAL_RUN_TYPE" ]]; then
+  require_safe "run type" "$PERF_EVAL_RUN_TYPE"
 fi
 
 if [[ "$PERF_EVAL_FANOUT" == "true" && "${#workloads[@]}" -eq 0 ]]; then
@@ -96,7 +105,7 @@ EOF
     echo "        ${PERF_EVAL_WORKLOAD_VAR}: \"${workload_value}\"" >>"$steps_file"
   fi
   if [[ -n "$PERF_EVAL_RUN_TYPE" ]]; then
-    echo "        ${PERF_EVAL_RUN_TYPE_VAR}: \"${PERF_EVAL_RUN_TYPE}\"" >>"$steps_file"
+    echo "        PERF_EVAL_RUN_TYPE: \"${PERF_EVAL_RUN_TYPE}\"" >>"$steps_file"
   fi
 }
 
@@ -109,16 +118,13 @@ if [[ "$PERF_EVAL_FANOUT" == "true" ]]; then
   done
 else
   echo "--- :chart_with_upwards_trend: Triggering a single perf-eval build"
-  # Comma-separate the list: perf-eval splits WORKLOADS on commas/newlines, not
-  # spaces, so a space-joined value would be read as one bogus entry.
-  workloads_csv="$(IFS=,; printf '%s' "${workloads[*]:-}")"
-  emit_trigger "" "$workloads_csv"
+  emit_trigger "" "$(join_commas "${workloads[@]:-}")"
 fi
 
 echo "Pipeline : ${PERF_EVAL_PIPELINE}"
 echo "Image    : ${image_ref}"
 echo "Workloads: ${PERF_EVAL_WORKLOADS:-<none, perf-eval defaults apply>}"
-echo "Run type : ${PERF_EVAL_RUN_TYPE:-<none, perf-eval default applies>}"
+echo "Run type : ${PERF_EVAL_RUN_TYPE:-<none, perf-eval records it as adhoc>}"
 echo "Async    : ${PERF_EVAL_ASYNC}"
 echo
 echo "Generated steps:"

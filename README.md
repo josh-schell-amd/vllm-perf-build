@@ -68,7 +68,7 @@ variables:
 | `IMAGE_REPO` | `rocm/vllm-dev` | Destination repo. |
 | `DOCKERHUB_USER` | `jpvillam` | Docker Hub account used to push. |
 | `DOCKERHUB_TOKEN_SECRET` | `dockerhub_token` | Name of the Buildkite secret holding the access token. |
-| `PUSH_IMAGE` | `true` | Set `false` to build only, as a "does this PR still build" gate. Cannot be combined with `TRIGGER_PERF_EVAL=true`. |
+| `PUSH_IMAGE` | `true` | Set `false` to build only, as a "does this PR still build" gate. Ignored when `TRIGGER_PERF_EVAL=true`. |
 | `EXTRA_BUILD_ARGS` | — | Space-separated extra `--build-arg`s, e.g. `NIC_BACKEND=none USE_SCCACHE=1`. |
 | `CLONE_DEPTH` | `1` | Shallow clone depth for the vLLM checkout. |
 
@@ -141,7 +141,7 @@ the downstream one.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TRIGGER_PERF_EVAL` | `false` | Master switch. Requires `PUSH_IMAGE=true`: perf-eval pulls the image, so the trigger step fails if it was never pushed. |
+| `TRIGGER_PERF_EVAL` | `false` | Master switch. Always pushes the image, even with `PUSH_IMAGE=false`, since perf-eval pulls it. |
 | `PERF_EVAL_PIPELINE` | `perf-eval` | Downstream pipeline slug. |
 | `PERF_EVAL_WORKLOADS` | — | Comma- or space-separated workload names. |
 | `PERF_EVAL_FANOUT` | `false` | `true` triggers one perf-eval build per workload instead of one build receiving the whole list. |
@@ -207,7 +207,8 @@ dispatcher: setting `FLOW=aiter-nightly` on a build of the existing
 vLLM-from-source build. No new Buildkite pipeline or settings change needed.
 
 - **Manual test:** New Build on `vllm-perf-build` with `FLOW=aiter-nightly`
-  (add `PUSH_IMAGE=false` for a harmless build-only smoke test).
+  (add `PUSH_IMAGE=false`, without `TRIGGER_PERF_EVAL`, for a build-only smoke
+  test).
 - **Nightly:** a Schedule (`0 7 * * *`) whose env sets `FLOW=aiter-nightly` and
   `TRIGGER_PERF_EVAL=true`. With nothing else set it resolves the newest nightly
   and the newest AITER wheel on its own.
@@ -224,7 +225,7 @@ if that changes.
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
-| `PUSH_IMAGE` | `true` | `false` builds only, and cannot be combined with `TRIGGER_PERF_EVAL=true`. |
+| `PUSH_IMAGE` | `true` | `false` builds only. Ignored when `TRIGGER_PERF_EVAL=true`. |
 | `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval repo branch to build (defaulted for this flow, not `main`). |
 
 Perf-eval is otherwise wired exactly as in the section above —

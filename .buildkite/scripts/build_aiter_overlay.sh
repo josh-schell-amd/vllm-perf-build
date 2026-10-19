@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Install the AITER nightly wheel that fits the resolved nightly image (picked by
-# vLLM's select_aiter_nightly_wheel.py) over that image, and push the result
-# unless PUSH_IMAGE=false.
+# vLLM's select_aiter_nightly_wheel.py) over that image, and push the result.
 #
 # Exit status, as in vLLM's aiter-nightly-overlay.sh:
 #   1   transient (fetch or registry error); retried once
@@ -11,7 +10,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 IMAGE_REPO="${IMAGE_REPO:-rocm/vllm-dev}"
-PUSH_IMAGE="${PUSH_IMAGE:-true}"
+PUSH_IMAGE="$(push_image)"
 DOCKERHUB_TOKEN_SECRET="${DOCKERHUB_TOKEN_SECRET:-dockerhub_token}"
 
 meta() { buildkite-agent meta-data get "$1"; }

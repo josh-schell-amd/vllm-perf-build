@@ -123,10 +123,13 @@ run env PERF_EVAL_WORKLOADS="a" PERF_EVAL_RUN_TYPE='bad" nightly'
 check "invalid run type is rejected" "$(grep -c 'Invalid run type' <<<"$(output)")" "1"
 check "invalid run type uploads nothing" "$(uploaded)" ""
 
-# An image that was never pushed cannot be pulled by perf-eval.
-run env PERF_EVAL_WORKLOADS="a" PUSH_IMAGE=false
-check "unpushed image is rejected" "$(grep -c 'the image was never pushed' <<<"$(output)")" "1"
-check "unpushed image uploads nothing" "$(uploaded)" ""
+# Triggering perf-eval pushes the image whatever PUSH_IMAGE says.
+source "$HERE/lib.sh"
+check "trigger forces a push" \
+  "$(TRIGGER_PERF_EVAL=true PUSH_IMAGE=false push_image 2>/dev/null)" "true"
+check "push_image honours PUSH_IMAGE otherwise" \
+  "$(TRIGGER_PERF_EVAL=false PUSH_IMAGE=false push_image)" "false"
+check "push_image defaults to true" "$(unset PUSH_IMAGE TRIGGER_PERF_EVAL; push_image)" "true"
 
 # The master switch still short-circuits.
 TRIGGER_PERF_EVAL=false bash "$SCRIPT" >"$WORK/stdout" 2>&1

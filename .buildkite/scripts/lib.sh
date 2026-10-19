@@ -60,13 +60,8 @@ docker_hub_login() {
   printf '%s' "$token" | docker login --username "$user" --password-stdin
 }
 
-# resolve_latest_nightly_commit <repo>
-# Prints the vLLM sha of the most recently pushed `nightly-<sha>` tag on the
-# given Docker Hub repo (e.g. vllm/vllm-openai-rocm). Empty on no match.
-#
-# We resolve the concrete commit rather than trusting the mutable `:nightly`
-# tag so the build pins an immutable input and the resulting image tag is
-# traceable to an exact vLLM commit.
+# Prints the commit of the newest `nightly-<sha>` tag on a Docker Hub repo, or
+# nothing if there is none.
 resolve_latest_nightly_commit() {
   local repo="$1"
   local url="https://hub.docker.com/v2/repositories/${repo}/tags?page_size=100&ordering=last_updated"

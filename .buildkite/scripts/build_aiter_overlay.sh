@@ -1,24 +1,10 @@
 #!/usr/bin/env bash
-# Pick the AITER nightly wheel for the resolved nightly image, build
-# docker/Dockerfile.aiter-overlay on top of it, and push it unless
-# PUSH_IMAGE=false.
+# Install the AITER nightly wheel that fits the resolved nightly image (picked by
+# vLLM's select_aiter_nightly_wheel.py) over that image, and push the result
+# unless PUSH_IMAGE=false.
 #
-# The wheel is picked as vLLM CI picks it: vLLM's select_aiter_nightly_wheel.py,
-# fetched at the image's vLLM commit and run inside the image. If no wheel fits,
-# the step stops before anything is built or pushed.
-#
-# Inputs (all optional):
-#   IMAGE_REPO, IMAGE_TAG, PUSH_IMAGE, DOCKERHUB_*
-#
-# Buildkite meta-data:
-#   reads   vllm-commit, overlay-base-image   set by resolve_nightly.sh
-#   r/w     aiter-wheel-url   the wheel chosen on the first attempt; a retry
-#                             reads it back and installs that same wheel
-#   writes  image-ref   read by trigger_perf_eval.sh
-#           aiter-version, image-tag   for reference only
-#
-# Exit status (same as vLLM's aiter-nightly-overlay.sh):
-#   1   transient (selector fetch, index fetch, registry); retried once
+# Exit status, as in vLLM's aiter-nightly-overlay.sh:
+#   1   transient (fetch or registry error); retried once
 #   10  no AITER nightly fits this image
 #   11  the wheel does not install
 set -euo pipefail
@@ -26,14 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 IMAGE_REPO="${IMAGE_REPO:-rocm/vllm-dev}"
 PUSH_IMAGE="${PUSH_IMAGE:-true}"
-DOCKERHUB_USER="${DOCKERHUB_USER:-}"
 DOCKERHUB_TOKEN_SECRET="${DOCKERHUB_TOKEN_SECRET:-dockerhub_token}"
-
-if [[ "$PUSH_IMAGE" == "true" && -z "$DOCKERHUB_USER" ]]; then
-  echo "^^^ +++"
-  echo "DOCKERHUB_USER is not set but PUSH_IMAGE=true." >&2
-  exit 1
-fi
 
 meta() { buildkite-agent meta-data get "$1"; }
 
@@ -66,13 +45,13 @@ fi
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-# Fetched first so a bad ref fails in seconds, not after a multi-GB pull.
 echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
 selector="${scratch}/select_aiter_nightly_wheel.py"
 curl -fsSL --retry 3 -o "$selector" "$selector_url" \
   || fail 1 "could not fetch the wheel selector" "${selector_url}"
 
 if [[ "$PUSH_IMAGE" == "true" ]]; then
+  # Set on this step in pipeline.aiter-nightly.yml.
   echo "--- :docker: Logging in to Docker Hub as ${DOCKERHUB_USER}"
   docker_hub_login "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN_SECRET"
 fi
@@ -104,36 +83,24 @@ aiter_wheel_url="$(head -n 1 <<< "$out")"
 note="$(tail -n +2 <<< "$out")"
 buildkite-agent meta-data set "aiter-wheel-url" "$aiter_wheel_url"
 
-# Decoded filename, e.g.
+# The image is tagged with the AITER commit, read from the wheel's filename:
 #   amd_aiter-0.1.25+rocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
-aiter_wheel_file="$(python3 -c 'import sys,urllib.parse as u; print(u.unquote(sys.argv[1].split("#")[0].split("/")[-1]))' "$aiter_wheel_url")"
-aiter_version=""
-aiter_short=""
-if [[ "$aiter_wheel_file" =~ ^amd_aiter-([^-]+)-cp[0-9]+- ]]; then
-  aiter_version="${BASH_REMATCH[1]}"
+aiter_wheel_file="${aiter_wheel_url%%#*}"
+aiter_wheel_file="${aiter_wheel_file##*/}"
+aiter_wheel_file="${aiter_wheel_file//%2B/+}"
+if [[ ! "$aiter_wheel_file" =~ ^amd_aiter-([^-]*\.([0-9a-f]{7,40})\.d[0-9]{8}[^-]*)-cp ]]; then
+  fail 1 "could not read the AITER commit" "${aiter_wheel_file}"
 fi
-# The AITER commit sits right before the .dYYYYMMDD build date.
-if [[ "$aiter_version" =~ \.([0-9a-f]{7,40})\.d[0-9]{8}($|\.) ]]; then
-  aiter_short="${BASH_REMATCH[1]:0:8}"
-fi
-if [[ -z "$aiter_short" ]]; then
-  echo "^^^ +++"
-  echo "Could not read the AITER version and commit from ${aiter_wheel_file}." >&2
-  exit 1
-fi
+aiter_version="${BASH_REMATCH[1]}"
+aiter_short="${BASH_REMATCH[2]:0:8}"
 
-# --- Compute the destination tag ---------------------------------------------
-# Encodes both inputs so the image is traceable to the exact vLLM nightly and
-# AITER wheel it was built from.
 if [[ -n "${IMAGE_TAG:-}" ]]; then
   image_tag="$(sanitize_tag_component "$IMAGE_TAG")"
 else
   image_tag="nightly-aiter-${aiter_short}-vllm-${vllm_short}"
 fi
 image_ref="${IMAGE_REPO}:${image_tag}"
-
-buildkite-agent meta-data set "aiter-version" "$aiter_version"
-buildkite-agent meta-data set "image-tag" "$image_tag"
+# Read by trigger_perf_eval.sh.
 buildkite-agent meta-data set "image-ref" "$image_ref"
 
 # The selector's note starts with :warning: when the wheel is stale.

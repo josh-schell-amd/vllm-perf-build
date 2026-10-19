@@ -3,10 +3,11 @@
 #
 # This is the lightweight cousin of pipeline.yml's BUILD_BASE path. Instead of
 # recompiling the whole ROCm base to swap AITER (~10h), it overlays the newest
-# published AITER nightly wheel (rocm7.2.3 by default) onto the prebuilt nightly
-# image — no kernel compile, so it's fast. With no environment variables set it
-# resolves the newest vllm/vllm-openai-rocm:nightly-<sha> and the newest AITER
-# wheel on its own.
+# published AITER nightly wheel onto the prebuilt nightly image — no kernel
+# compile, so it's fast. With no environment variables set it resolves the
+# newest vllm/vllm-openai-rocm:nightly-<sha> and the newest AITER wheel built
+# for that image's ROCm, torch and Python on its own. When no such wheel exists
+# the overlay step fails (exit 10) and perf-eval is not triggered.
 #
 # This flow is NOT a separate Buildkite pipeline. The main pipeline.yml is a
 # dispatcher: triggering the existing vllm-perf-build pipeline with
@@ -19,9 +20,9 @@
 # PERF_EVAL_WORKLOADS is needed.
 #
 # Common overrides (set on the build / schedule): VLLM_COMMIT, AITER_WHEEL_URL,
-# AITER_ROCM_VARIANT, AITER_WHEEL_INDEX, IMAGE_TAG, PUSH_IMAGE,
-# TRIGGER_PERF_EVAL, PERF_EVAL_BRANCH, PERF_EVAL_WORKLOADS, PERF_EVAL_FANOUT.
-# See README.md.
+# AITER_WHEEL_INDEX, AITER_SELECTOR_REF, IMAGE_TAG, PUSH_IMAGE,
+# TRIGGER_PERF_EVAL, PERF_EVAL_BRANCH, PERF_EVAL_WORKLOADS, PERF_EVAL_FANOUT,
+# PERF_EVAL_RUN_TYPE. See README.md.
 #
 # NB: because pipeline.yml uploads this file as a *nested* pipeline, top-level
 # `agents`/`env` blocks don't reliably propagate to these steps on this agent
@@ -32,14 +33,14 @@ agents:
   queue: amd-cpu
 
 steps:
-  - label: ":mag: Resolve nightly + AITER"
+  - label: ":mag: Resolve vLLM nightly"
     key: "resolve-nightly"
     command: ".buildkite/scripts/resolve_nightly.sh"
     agents:
       queue: amd-cpu
     timeout_in_minutes: 10
 
-  - label: ":docker: Build & push AITER overlay"
+  - label: ":docker: Select AITER wheel, build & push overlay"
     key: "overlay"
     depends_on: "resolve-nightly"
     command: ".buildkite/scripts/build_aiter_overlay.sh"
@@ -50,6 +51,9 @@ steps:
     # Just pulls the nightly, swaps in a prebuilt AITER wheel (no kernel
     # compile), and pushes. Dominated by the image pull/push, so 2h is plenty.
     timeout_in_minutes: 120
+    # Exit 10 (no wheel fits the image) and 11 (the wheel does not install) are
+    # real AITER failures, not transient ones, so they are deliberately not
+    # retried: a retry would only fail the same way.
     retry:
       automatic:
         - exit_status: -1  # agent lost

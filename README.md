@@ -165,8 +165,8 @@ ROCm base to swap AITER (the `BUILD_BASE` path above, ~10h), it:
 The wheel is picked by vLLM's own
 [`select_aiter_nightly_wheel.py`](https://github.com/vllm-project/vllm/blob/main/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py),
 the same selector vLLM CI runs for its `AITER_NIGHTLY=1` builds, so both pick the
-same wheel for the same image. `build_aiter_overlay.sh` fetches it from vLLM
-(`AITER_SELECTOR_REF`, default `main`) and runs it inside the base image, where
+same wheel for the same image. `build_aiter_overlay.sh` fetches it from the same
+vLLM commit as the nightly image and runs it inside that image, where
 it reads the image's ROCm, torch and Python and takes the newest wheel on
 <https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/> built for
 exactly that combination. A wheel pinned with `AITER_WHEEL_URL` is checked the
@@ -205,11 +205,10 @@ if that changes.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit; otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
+| `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit (full SHA; the AITER selector is fetched at it, so it must be 2026-10-12 or later); otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
 | `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Must be an AITER nightly wheel, and is still rejected if it does not fit the base image. |
-| `AITER_SELECTOR_REF` | `main` | vLLM ref to fetch `select_aiter_nightly_wheel.py` from. |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
 | `PUSH_IMAGE` | `true` | `false` builds only. |
 | `PULL_BASE` | `true` | Pull the nightly before building (fails fast on a bad ref). |

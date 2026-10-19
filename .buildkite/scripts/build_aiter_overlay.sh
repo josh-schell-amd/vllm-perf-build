@@ -7,11 +7,12 @@
 # reads that image's ROCm, torch and Python. It takes the newest wheel built
 # for exactly that combination; if there is none, this step stops before
 # anything is built, pushed or benchmarked, so perf-eval is never handed an
-# image whose AITER was compiled against a different torch or ROCm.
+# image whose AITER was compiled against a different torch or ROCm. The
+# selector is taken from the same vLLM commit as the image, so it is the one
+# vLLM CI ran for that commit.
 #
 # Inputs (all optional):
 #   AITER_WHEEL_URL     pin an exact wheel; still checked against the image
-#   AITER_SELECTOR_REF  vLLM ref to take the selector from (default main)
 #   IMAGE_REPO, IMAGE_TAG, PUSH_IMAGE, PULL_BASE, EXTRA_IMAGE_TAGS, DOCKERHUB_*
 #
 # Buildkite meta-data:
@@ -38,8 +39,6 @@ PULL_BASE="${PULL_BASE:-true}"
 # Space-separated additional tags to publish alongside the primary one.
 EXTRA_IMAGE_TAGS="${EXTRA_IMAGE_TAGS:-}"
 AITER_WHEEL_URL="${AITER_WHEEL_URL:-}"
-AITER_SELECTOR_REF="${AITER_SELECTOR_REF:-main}"
-selector_url="https://raw.githubusercontent.com/vllm-project/vllm/${AITER_SELECTOR_REF}/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py"
 
 if [[ "$PUSH_IMAGE" == "true" && -z "$DOCKERHUB_USER" ]]; then
   echo "^^^ +++"
@@ -63,6 +62,7 @@ fail() {
 vllm_commit="$(meta vllm-commit)"
 vllm_short="${vllm_commit:0:8}"
 base_image="$(meta overlay-base-image)"
+selector_url="https://raw.githubusercontent.com/vllm-project/vllm/${vllm_commit}/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py"
 
 # Dockerfile lives in this repo, checked out by the agent. It COPYs nothing, so
 # the build context is irrelevant — use the directory it sits in.
@@ -83,7 +83,9 @@ trap 'rm -rf "$scratch"' EXIT
 echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
 selector="${scratch}/select_aiter_nightly_wheel.py"
 curl -fsSL --retry 3 -o "$selector" "$selector_url" \
-  || fail 1 "could not fetch the wheel selector" "$selector_url"
+  || fail 1 "could not fetch the wheel selector" \
+    "${selector_url}
+vLLM commits before c9e62f13 (2026-10-12) do not have it; a VLLM_COMMIT pin must be a full SHA."
 
 if [[ "$PUSH_IMAGE" == "true" ]]; then
   echo "--- :docker: Logging in to Docker Hub as ${DOCKERHUB_USER}"

@@ -11,9 +11,7 @@
 #
 # Inputs (all optional):
 #   AITER_WHEEL_URL     pin an exact wheel; still checked against the image
-#   AITER_WHEEL_INDEX   AITER nightly wheel index (default the AMD nightlies page)
 #   AITER_SELECTOR_REF  vLLM ref to take the selector from (default main)
-#   AITER_SELECTOR_URL  override the selector's URL entirely
 #   IMAGE_REPO, IMAGE_TAG, PUSH_IMAGE, PULL_BASE, EXTRA_IMAGE_TAGS, DOCKERHUB_*
 #
 # Buildkite meta-data:
@@ -38,9 +36,8 @@ PULL_BASE="${PULL_BASE:-true}"
 # Space-separated additional tags to publish alongside the primary one.
 EXTRA_IMAGE_TAGS="${EXTRA_IMAGE_TAGS:-}"
 AITER_WHEEL_URL="${AITER_WHEEL_URL:-}"
-AITER_WHEEL_INDEX="${AITER_WHEEL_INDEX:-https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/}"
 AITER_SELECTOR_REF="${AITER_SELECTOR_REF:-main}"
-AITER_SELECTOR_URL="${AITER_SELECTOR_URL:-https://raw.githubusercontent.com/vllm-project/vllm/${AITER_SELECTOR_REF}/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py}"
+selector_url="https://raw.githubusercontent.com/vllm-project/vllm/${AITER_SELECTOR_REF}/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py"
 
 if [[ "$PUSH_IMAGE" == "true" && -z "$DOCKERHUB_USER" ]]; then
   echo "^^^ +++"
@@ -95,15 +92,15 @@ fi
 pinned="$(buildkite-agent meta-data get aiter-wheel-url --default "")"
 pinned="${pinned:-$AITER_WHEEL_URL}"
 
-echo "--- :arrow_down: Fetching the AITER wheel selector from ${AITER_SELECTOR_URL}"
+echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
 selector="${scratch}/select_aiter_nightly_wheel.py"
-curl -fsSL --retry 3 -o "$selector" "$AITER_SELECTOR_URL"
+curl -fsSL --retry 3 -o "$selector" "$selector_url"
 
 echo "--- :mag: Selecting the AITER nightly for ${base_image}"
 errors="${scratch}/errors"
 set +e
 out="$(docker run --rm -i --entrypoint python3 "$base_image" \
-  -P - --index-url "$AITER_WHEEL_INDEX" ${pinned:+--wheel-url "$pinned"} \
+  -P - ${pinned:+--wheel-url "$pinned"} \
   < "$selector" 2> "$errors")"
 status=$?
 set -e

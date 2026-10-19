@@ -208,9 +208,7 @@ if that changes.
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
 | `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Still rejected if it does not fit the base image. |
-| `AITER_WHEEL_INDEX` | AMD nightlies page | The amd-aiter wheel index to resolve from. |
 | `AITER_SELECTOR_REF` | `main` | vLLM ref to fetch `select_aiter_nightly_wheel.py` from. |
-| `AITER_SELECTOR_URL` | derived | Override the selector's URL entirely. |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
 | `PUSH_IMAGE` | `true` | `false` builds only. |
 | `PULL_BASE` | `true` | Pull the nightly before building (fails fast on a bad ref). |

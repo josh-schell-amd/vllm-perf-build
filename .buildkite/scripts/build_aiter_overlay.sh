@@ -18,9 +18,11 @@
 #   reads   vllm-commit, overlay-base-image   set by resolve_nightly.sh
 #   r/w     aiter-wheel-url   the wheel chosen on the first attempt; a retry
 #                             reads it back and installs that same wheel
-#   writes  aiter-version, image-tag, image-ref   read by trigger_perf_eval.sh
+#   writes  image-ref   read by trigger_perf_eval.sh
+#           aiter-version, image-tag   for reference only
 #
 # Exit status (same as vLLM's aiter-nightly-overlay.sh):
+#   1   transient (selector fetch, index fetch, registry); retried once
 #   10  no AITER nightly fits this image
 #   11  the wheel does not install
 set -euo pipefail
@@ -77,6 +79,12 @@ fi
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
+# Fetched first so a bad ref fails in seconds, not after a multi-GB pull.
+echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
+selector="${scratch}/select_aiter_nightly_wheel.py"
+curl -fsSL --retry 3 -o "$selector" "$selector_url" \
+  || fail 1 "could not fetch the wheel selector" "$selector_url"
+
 if [[ "$PUSH_IMAGE" == "true" ]]; then
   echo "--- :docker: Logging in to Docker Hub as ${DOCKERHUB_USER}"
   docker_hub_login "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN_SECRET"
@@ -91,10 +99,6 @@ fi
 # A retry reuses the first attempt's wheel rather than a newer nightly.
 pinned="$(buildkite-agent meta-data get aiter-wheel-url --default "")"
 pinned="${pinned:-$AITER_WHEEL_URL}"
-
-echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
-selector="${scratch}/select_aiter_nightly_wheel.py"
-curl -fsSL --retry 3 -o "$selector" "$selector_url"
 
 echo "--- :mag: Selecting the AITER nightly for ${base_image}"
 errors="${scratch}/errors"

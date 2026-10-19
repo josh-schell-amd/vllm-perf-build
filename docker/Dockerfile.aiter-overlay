@@ -3,7 +3,8 @@
 # The lightweight alternative to rebuilding Dockerfile.rocm_base: instead of
 # compiling AITER (and everything else) from source, take the prebuilt nightly
 # image and swap the bundled AITER wheel for the newest published nightly wheel
-# (rocm7.2.3 by default). No kernel compile, so this is fast.
+# built for its ROCm, torch and Python (build_aiter_overlay.sh picks it). No
+# kernel compile, so this is fast.
 #
 # Build args:
 #   BASE_IMAGE      - the published nightly, e.g. vllm/vllm-openai-rocm:nightly-<sha>

@@ -123,6 +123,11 @@ run env PERF_EVAL_WORKLOADS="a" PERF_EVAL_RUN_TYPE='bad" nightly'
 check "invalid run type is rejected" "$(grep -c 'Invalid run type' <<<"$(output)")" "1"
 check "invalid run type uploads nothing" "$(uploaded)" ""
 
+# An image that was never pushed cannot be pulled by perf-eval.
+run env PERF_EVAL_WORKLOADS="a" PUSH_IMAGE=false
+check "unpushed image is rejected" "$(grep -c 'the image was never pushed' <<<"$(output)")" "1"
+check "unpushed image uploads nothing" "$(uploaded)" ""
+
 # The master switch still short-circuits.
 TRIGGER_PERF_EVAL=false bash "$SCRIPT" >"$WORK/stdout" 2>&1
 check "disabled trigger does nothing" "$(grep -c 'not triggering perf-eval' <<<"$(output)")" "1"

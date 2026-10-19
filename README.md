@@ -162,9 +162,9 @@ ROCm base to swap AITER (the `BUILD_BASE` path above, ~10h), it:
    pinned `VLLM_COMMIT`),
 2. pulls that nightly and, inside it, picks the newest AITER nightly wheel built
    for exactly its ROCm, torch and Python (see below),
-3. builds `docker/Dockerfile.aiter-overlay` on top of it, which uninstalls the
-   bundled `amd-aiter` and `pip install`s that wheel `--no-deps` (no kernel
-   compile, so just the pull/install),
+3. builds `docker/Dockerfile.aiter-overlay` on top of it, which `pip install`s
+   that wheel over the bundled `amd-aiter`, exactly as vLLM CI's
+   `aiter-nightly-overlay.sh` does (no kernel compile, so just the pull/install),
 4. pushes to `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`, and
 5. triggers perf-eval via the same `trigger_perf_eval.sh` as the main pipeline.
 

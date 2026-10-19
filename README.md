@@ -3,6 +3,19 @@
 Buildkite pipeline that builds a vLLM ROCm docker image from any vLLM PR, branch, or
 commit and publishes it to [`rocm/vllm-dev`](https://hub.docker.com/r/rocm/vllm-dev).
 
+## Flows
+
+The one `vllm-perf-build` pipeline runs one of two flows, chosen by `FLOW` on the
+build:
+
+| `FLOW` | Runs |
+| --- | --- |
+| unset | Build vLLM from source for a PR, branch or commit (below). Takes hours; with `BUILD_BASE=true`, much longer. |
+| `aiter-nightly` | Overlay the newest matching AITER nightly wheel onto the latest published vLLM ROCm nightly. No compile. See [AITER nightly](#aiter-nightly-overlay-onto-the-published-nightly). |
+
+Any other value fails the build at its first step, so a typo cannot start a
+from-source build by accident.
+
 ## Triggering a build
 
 Start a build on the Buildkite pipeline and set **one** of these environment variables:
@@ -46,6 +59,7 @@ variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `FLOW` | — | Which flow to run; see [Flows](#flows). |
 | `VLLM_REPO` | `https://github.com/vllm-project/vllm.git` | Source repo. Leave as upstream for PRs — even fork PRs are fetched from here. |
 | `BASE_IMAGE` | `rocm/vllm-dev:base` | Prebuilt ROCm/PyTorch base, pulled rather than built. |
 | `DOCKER_TARGET` | `vllm-openai` | Dockerfile stage. `final` for the runtime without the serving entrypoint, `test` for the CI test image. |
@@ -54,7 +68,7 @@ variables:
 | `IMAGE_REPO` | `rocm/vllm-dev` | Destination repo. |
 | `DOCKERHUB_USER` | `jpvillam` | Docker Hub account used to push. |
 | `DOCKERHUB_TOKEN_SECRET` | `dockerhub_token` | Name of the Buildkite secret holding the access token. |
-| `PUSH_IMAGE` | `true` | Set `false` to build only, as a "does this PR still build" gate. |
+| `PUSH_IMAGE` | `true` | Set `false` to build only, as a "does this PR still build" gate. Cannot be combined with `TRIGGER_PERF_EVAL=true`. |
 | `EXTRA_BUILD_ARGS` | — | Space-separated extra `--build-arg`s, e.g. `NIC_BACKEND=none USE_SCCACHE=1`. |
 | `CLONE_DEPTH` | `1` | Shallow clone depth for the vLLM checkout. |
 
@@ -122,7 +136,7 @@ perf-eval receives these environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TRIGGER_PERF_EVAL` | `false` | Master switch. |
+| `TRIGGER_PERF_EVAL` | `false` | Master switch. Requires `PUSH_IMAGE=true`: perf-eval pulls the image, so the trigger step fails if it was never pushed. |
 | `PERF_EVAL_PIPELINE` | `perf-eval` | Downstream pipeline slug. |
 | `PERF_EVAL_WORKLOADS` | — | Comma- or space-separated workload names. |
 | `PERF_EVAL_FANOUT` | `false` | `true` triggers one perf-eval build per workload instead of one build receiving the whole list. |
@@ -145,18 +159,42 @@ common "how does AITER main look tonight?" question. Rather than rebuilding the
 ROCm base to swap AITER (the `BUILD_BASE` path above, ~10h), it:
 
 1. resolves the newest published `vllm/vllm-openai-rocm:nightly-<sha>` (or a
-   pinned `VLLM_COMMIT`) and the newest AITER nightly wheel (rocm7.2.3 by
-   default) from the AMD nightlies index,
-2. pulls that nightly and builds `docker/Dockerfile.aiter-overlay` on top of it,
-   which uninstalls the bundled `amd-aiter` and `pip install`s the resolved
-   nightly wheel `--no-deps` (no kernel compile, so just the pull/install),
-3. pushes to `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`, and
-4. triggers perf-eval via the same `trigger_perf_eval.sh` as the main pipeline.
+   pinned `VLLM_COMMIT`),
+2. pulls that nightly and, inside it, picks the newest AITER nightly wheel built
+   for exactly its ROCm, torch and Python (see below),
+3. builds `docker/Dockerfile.aiter-overlay` on top of it, which `pip install`s
+   that wheel over the bundled `amd-aiter`, exactly as vLLM CI's
+   `aiter-nightly-overlay.sh` does (no kernel compile, so just the pull/install),
+4. pushes to `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`, and
+5. triggers perf-eval via the same `trigger_perf_eval.sh` as the main pipeline.
 
-The AITER wheel index is
-<https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/>; the flow
-picks the highest-versioned `rocm7.2.3` `cp312` wheel (whose `dYYYYMMDD` local
-segment orders the nightlies by date).
+### Wheel matching
+
+The wheel is picked by vLLM's own
+[`select_aiter_nightly_wheel.py`](https://github.com/vllm-project/vllm/blob/main/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py),
+the same selector vLLM CI runs for its `AITER_NIGHTLY=1` builds, so both apply the
+same matching rules. It takes the newest matching wheel at the moment it runs, so
+this flow and vLLM CI can still land on different wheels if a new AITER nightly is
+published between their runs. `build_aiter_overlay.sh` fetches the selector from
+the same vLLM commit as the nightly image and runs it inside that image, where
+it reads the image's ROCm, torch and Python and takes the newest wheel on
+<https://rocm.frameworks-nightlies.amd.com/whl-multi-arch/amd-aiter/> built for
+exactly that combination. A wheel pinned with `AITER_WHEEL_URL` is checked the
+same way.
+
+If no wheel matches, the overlay step stops with exit status 10 and an error
+annotation listing what the index does have, e.g.
+
+```
+No AITER nightly for rocm10.0.0/torch2.12/cp312. Available: rocm10.0.0/torch2.13/cp312, rocm7.2.3/torch2.12/cp312, ...
+```
+
+Nothing is built or pushed and perf-eval is not triggered, so a night with no
+compatible wheel produces no benchmark numbers rather than numbers from an AITER
+compiled against a different torch or ROCm. If the wheel matches but does not
+install, the step exits 11. Neither is retried. Exit 1 (a failed fetch or
+registry error) is retried once, and a retry reinstalls the wheel the first
+attempt chose, not a newer nightly.
 
 This is **not a separate pipeline**. `.buildkite/pipeline.yml` doubles as a
 dispatcher: setting `FLOW=aiter-nightly` on a build of the existing
@@ -177,14 +215,12 @@ if that changes.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit; otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
+| `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit (full SHA; the AITER selector is fetched at it, so it must be 2026-10-12 or later); otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
-| `AITER_WHEEL_URL` | newest wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. |
-| `AITER_ROCM_VARIANT` | `rocm7.2.3` | ROCm build variant to match on the index (e.g. `rocm7.14.0`). |
-| `AITER_WHEEL_INDEX` | AMD nightlies page | The amd-aiter wheel index to resolve from. |
+| `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Must be an AITER nightly wheel, and is still rejected if it does not fit the base image. |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
-| `PUSH_IMAGE` | `true` | `false` builds only. |
+| `PUSH_IMAGE` | `true` | `false` builds only, and cannot be combined with `TRIGGER_PERF_EVAL=true`. |
 | `PULL_BASE` | `true` | Pull the nightly before building (fails fast on a bad ref). |
 | `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval repo branch to build (defaulted for this flow, not `main`). |
 

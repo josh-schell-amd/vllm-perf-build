@@ -14,6 +14,14 @@ if [[ "$TRIGGER_PERF_EVAL" != "true" ]]; then
   exit 0
 fi
 
+# An unpushed image exists only on the agent that built it, so perf-eval could
+# not pull it, or would pull an older image pushed under the same tag.
+if [[ "${PUSH_IMAGE:-true}" != "true" ]]; then
+  echo "^^^ +++"
+  echo "TRIGGER_PERF_EVAL=true but PUSH_IMAGE=${PUSH_IMAGE}: the image was never pushed, so perf-eval cannot run on it." >&2
+  exit 1
+fi
+
 PERF_EVAL_PIPELINE="${PERF_EVAL_PIPELINE:-perf-eval}"
 PERF_EVAL_WORKLOADS="${PERF_EVAL_WORKLOADS:-}"
 # "true" -> one downstream build per workload; "false" -> a single build that

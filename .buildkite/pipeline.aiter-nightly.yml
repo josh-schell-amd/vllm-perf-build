@@ -1,4 +1,4 @@
-# AITER nightly: rebuild AITER (from main by default) on top of the latest
+# AITER nightly: overlay the newest matching AITER nightly wheel onto the latest
 # published vLLM ROCm nightly, push the result, and kick off perf-eval.
 #
 # This is the lightweight cousin of pipeline.yml's BUILD_BASE path. Instead of
@@ -51,11 +51,14 @@ steps:
     # Just pulls the nightly, swaps in a prebuilt AITER wheel (no kernel
     # compile), and pushes. Dominated by the image pull/push, so 2h is plenty.
     timeout_in_minutes: 120
-    # Exit 10 (no wheel fits the image) and 11 (the wheel does not install) are
-    # real AITER failures, not transient ones, so they are deliberately not
-    # retried: a retry would only fail the same way.
+    # Exit 1 (a failed fetch of the selector or wheel index, or a registry
+    # error) is retried once, as vLLM CI does. Exit 10 (no wheel fits the
+    # image) and 11 (the wheel does not install) are real AITER failures, so
+    # they are deliberately not retried: a retry would only fail the same way.
     retry:
       automatic:
+        - exit_status: 1
+          limit: 1
         - exit_status: -1  # agent lost
           limit: 2
         - exit_status: 255 # agent forced shutdown

@@ -182,8 +182,9 @@ No AITER nightly for rocm10.0.0/torch2.12/cp312. Available: rocm10.0.0/torch2.13
 Nothing is built or pushed and perf-eval is not triggered, so a night with no
 compatible wheel produces no benchmark numbers rather than numbers from an AITER
 compiled against a different torch or ROCm. If the wheel matches but does not
-install, the step exits 11. Neither is retried. A retry for any other reason
-reinstalls the wheel the first attempt chose, not a newer nightly.
+install, the step exits 11. Neither is retried. Exit 1 (a failed fetch or
+registry error) is retried once, and a retry reinstalls the wheel the first
+attempt chose, not a newer nightly.
 
 This is **not a separate pipeline**. `.buildkite/pipeline.yml` doubles as a
 dispatcher: setting `FLOW=aiter-nightly` on a build of the existing
@@ -207,7 +208,7 @@ if that changes.
 | `VLLM_COMMIT` | newest nightly | Pin the vLLM nightly commit; otherwise the newest `nightly-<sha>` tag on `NIGHTLY_REPO` is resolved from Docker Hub. |
 | `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Published nightly repo to overlay onto. |
 | `OVERLAY_BASE_IMAGE` | derived | Override the base image entirely (skips the lookup). |
-| `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Still rejected if it does not fit the base image. |
+| `AITER_WHEEL_URL` | newest matching wheel | Pin an exact amd-aiter wheel URL, skipping the index lookup. Must be an AITER nightly wheel, and is still rejected if it does not fit the base image. |
 | `AITER_SELECTOR_REF` | `main` | vLLM ref to fetch `select_aiter_nightly_wheel.py` from. |
 | `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the computed tag. |
 | `PUSH_IMAGE` | `true` | `false` builds only. |

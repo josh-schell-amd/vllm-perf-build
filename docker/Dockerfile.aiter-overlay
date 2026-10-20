@@ -1,28 +1,13 @@
-# Overlay a nightly AITER wheel onto an already-published vLLM ROCm image.
-#
-# The lightweight alternative to rebuilding Dockerfile.rocm_base: instead of
-# compiling AITER (and everything else) from source, take the prebuilt nightly
-# image and swap the bundled AITER wheel for the newest published nightly wheel
-# built for its ROCm, torch and Python (build_aiter_overlay.sh picks it). No
-# kernel compile, so this is fast.
-#
-# Build args:
-#   BASE_IMAGE      - the published nightly, e.g. vllm/vllm-openai-rocm:nightly-<sha>
-#   AITER_WHEEL_URL - direct URL of the amd-aiter nightly wheel to install
-#   VLLM_COMMIT     - recorded in /app/versions.txt for traceability
+# Install an AITER nightly wheel over a published vLLM ROCm nightly.
+# build_aiter_overlay.sh passes all three build args.
 
-ARG BASE_IMAGE=vllm/vllm-openai-rocm:nightly
+ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ARG AITER_WHEEL_URL
 ARG VLLM_COMMIT=unknown
 
-# Fail early rather than silently shipping the stock AITER.
-RUN test -n "${AITER_WHEEL_URL}" || (echo "AITER_WHEEL_URL build-arg is required" >&2; exit 1)
-
-# Installed exactly as vLLM CI's aiter-nightly-overlay.sh does, so both test the
-# same install: pip replaces the bundled amd-aiter itself and adds any
-# dependency the new wheel needs that the image lacks.
+# Installed exactly as vLLM CI's aiter-nightly-overlay.sh does.
 RUN python3 -m pip install --no-cache-dir "${AITER_WHEEL_URL}" \
     && python3 -m pip show amd-aiter | grep -i '^Version:'
 

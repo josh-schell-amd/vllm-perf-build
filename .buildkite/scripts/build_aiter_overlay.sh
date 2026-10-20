@@ -35,14 +35,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dockerfile="${repo_root}/docker/Dockerfile.aiter-overlay"
 context_dir="${repo_root}/docker"
 
-if [[ ! -f "$dockerfile" ]]; then
-  echo "^^^ +++"
-  echo "Overlay Dockerfile not found at ${dockerfile}." >&2
-  exit 1
-fi
-
 scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
+image_ref=""
+# Each night pulls a new multi-GB base; don't let them pile up on the agent.
+cleanup() {
+  rm -rf "$scratch"
+  docker rmi ${image_ref:+"$image_ref"} "$base_image" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 echo "--- :arrow_down: Fetching the AITER wheel selector from ${selector_url}"
 selector="${scratch}/select_aiter_nightly_wheel.py"
@@ -82,23 +82,15 @@ aiter_wheel_url="$(head -n 1 <<< "$out")"
 note="$(tail -n +2 <<< "$out")"
 buildkite-agent meta-data set "aiter-wheel-url" "$aiter_wheel_url"
 
-# The image is tagged with the AITER commit, read from the wheel's filename:
+# Tag with the AITER commit in the wheel's name (ae984f5 here):
 #   amd_aiter-0.1.25+rocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
 aiter_wheel_file="${aiter_wheel_url%%#*}"
 aiter_wheel_file="${aiter_wheel_file##*/}"
 aiter_wheel_file="${aiter_wheel_file//%2B/+}"
-if [[ ! "$aiter_wheel_file" =~ ^amd_aiter-([^-]*\.([0-9a-f]{7,40})\.d[0-9]{8}[^-]*)-cp ]]; then
+if [[ ! "$aiter_wheel_file" =~ [+.]([0-9a-f]{7,40})\.d[0-9]{8} ]]; then
   fail 1 "could not read the AITER commit" "${aiter_wheel_file}"
 fi
-aiter_version="${BASH_REMATCH[1]}"
-aiter_short="${BASH_REMATCH[2]:0:8}"
-
-if [[ -n "${IMAGE_TAG:-}" ]]; then
-  image_tag="$(sanitize_tag_component "$IMAGE_TAG")"
-else
-  image_tag="nightly-aiter-${aiter_short}-vllm-${vllm_short}"
-fi
-image_ref="${IMAGE_REPO}:${image_tag}"
+image_ref="${IMAGE_REPO}:nightly-aiter-${BASH_REMATCH[1]:0:8}-vllm-${vllm_short}"
 # Read by trigger_perf_eval.sh.
 buildkite-agent meta-data set "image-ref" "$image_ref"
 
@@ -112,9 +104,7 @@ echo "$note" | buildkite-agent annotate --style "$style" --context "aiter-nightl
 echo "--- :hammer: Building ${image_ref}"
 echo "Base image   : ${base_image}"
 echo "vLLM commit  : ${vllm_commit}"
-echo "AITER version: ${aiter_version}"
 echo "AITER wheel  : ${aiter_wheel_url}"
-df -h "$PWD" || true
 
 build_cmd=(
   docker build
@@ -124,7 +114,6 @@ build_cmd=(
   --build-arg "AITER_WHEEL_URL=${aiter_wheel_url}"
   --build-arg "VLLM_COMMIT=${vllm_commit}"
   --label "aiter.wheel=${aiter_wheel_url}"
-  --label "aiter.version=${aiter_version}"
   --label "vllm.commit=${vllm_commit}"
   --label "buildkite.build.url=${BUILDKITE_BUILD_URL:-}"
   "$context_dir"
@@ -134,10 +123,6 @@ if ! "${build_cmd[@]}"; then
   fail 11 "the wheel does not install" \
     "Installing ${aiter_wheel_file} over ${base_image} failed; see this step's log."
 fi
-
-echo "--- :mag: Verifying installed AITER wheel"
-docker run --rm --entrypoint cat "$image_ref" /app/versions.txt || true
-docker run --rm --entrypoint python3 "$image_ref" -m pip show amd-aiter 2>/dev/null | grep -i '^Version:' || true
 
 echo "--- :mag: Image summary"
 docker image inspect "$image_ref" \
@@ -163,6 +148,6 @@ digest="$(docker image inspect "$image_ref" \
   echo "docker pull ${image_ref}"
   echo '```'
   echo "- vLLM commit: \`${vllm_commit}\`"
-  echo "- AITER wheel: \`${aiter_version}\`"
+  echo "- AITER wheel: \`${aiter_wheel_file}\`"
   [[ -n "$digest" ]] && echo "- Digest: \`${digest}\`"
 } | buildkite-agent annotate --style success --context "image"

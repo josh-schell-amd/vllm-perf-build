@@ -5,9 +5,6 @@
 # Every step sets its own agents and env: top-level blocks do not reach a
 # nested upload on this agent version.
 
-agents:
-  queue: amd-cpu
-
 steps:
   - label: ":mag: Resolve vLLM nightly"
     key: "resolve-nightly"
@@ -44,6 +41,5 @@ steps:
     agents:
       queue: amd-cpu
     env:
-      # perf-eval's nightly-dashboard work is on this branch, not main yet.
-      PERF_EVAL_BRANCH: "${PERF_EVAL_BRANCH:-micah/migrate-vllm-dashboard-nightly}"
+      PERF_EVAL_RUN_TYPE: "${PERF_EVAL_RUN_TYPE:-aiter-nightly}"
     timeout_in_minutes: 10

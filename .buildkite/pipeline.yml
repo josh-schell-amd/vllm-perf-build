@@ -26,10 +26,6 @@ env:
   DOCKERHUB_USER: "${DOCKERHUB_USER:-jpvillam}"
 
 steps:
-  # Flow selector. This one pipeline serves two flows so we don't need a second
-  # Buildkite pipeline: the default builds vLLM from source (the steps below),
-  # while FLOW=aiter-nightly uploads the lightweight AITER-overlay flow instead.
-  # Trigger it with FLOW=aiter-nightly in the build environment.
   - label: ":pipeline: AITER overlay flow"
     if: build.env("FLOW") == "aiter-nightly"
     command: "buildkite-agent pipeline upload .buildkite/pipeline.aiter-nightly.yml"

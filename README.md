@@ -110,7 +110,7 @@ perf-eval receives only these; other variables on this build do not reach it:
 
 | Variable | Value |
 | --- | --- |
-| `VLLM_IMAGE` | the pushed image, e.g. `rocm/vllm-dev:pr-12345-abc123de` |
+| `VLLM_IMAGE_ROCM` | the pushed image, e.g. `rocm/vllm-dev:pr-12345-abc123de`. perf-eval runs it on ROCm workloads only. |
 | `VLLM_COMMIT` | full vLLM sha |
 | `WORKLOADS` | requested workloads, comma-separated |
 | `PERF_EVAL_RUN_TYPE` | run label, if set |
@@ -125,8 +125,6 @@ perf-eval receives only these; other variables on this build do not reach it:
 | `PERF_EVAL_ASYNC` | `true` | `false`: wait for perf-eval and inherit its result. |
 | `PERF_EVAL_BRANCH` | `main` | perf-eval repo branch. |
 | `PERF_EVAL_RUN_TYPE` | — | Run label (`nightly`, `rc`, `aiter-nightly`, ...) for the dashboard. Unset is `adhoc`. |
-| `PERF_EVAL_IMAGE_VAR` | `VLLM_IMAGE` | Variable perf-eval reads the image from. |
-| `PERF_EVAL_WORKLOAD_VAR` | `WORKLOADS` | Variable perf-eval reads the workloads from. |
 
 The image tag is only known at runtime, so `.buildkite/scripts/trigger_perf_eval.sh`
 generates and uploads the trigger step. Workload names and the run type are limited to
@@ -142,7 +140,7 @@ stubbed `buildkite-agent`; run it directly.
 2. picks the AITER nightly wheel built for that image's ROCm, torch and Python,
 3. `pip install`s it over the image, as vLLM CI's `aiter-nightly-overlay.sh` does,
 4. pushes `rocm/vllm-dev:nightly-aiter-<aiter-sha>-vllm-<vllm-sha>`,
-5. triggers perf-eval as above.
+5. with `TRIGGER_PERF_EVAL=true`, triggers perf-eval as above.
 
 The wheel is picked by vLLM's
 [`select_aiter_nightly_wheel.py`](https://github.com/vllm-project/vllm/blob/main/.buildkite/scripts/rocm/select_aiter_nightly_wheel.py),
@@ -165,16 +163,14 @@ compatible wheel gives no numbers rather than wrong ones.
 - **Nightly:** a Schedule (`0 7 * * *`) with `FLOW=aiter-nightly` and
   `TRIGGER_PERF_EVAL=true`.
 
-perf-eval runs its default workloads.
+perf-eval runs its default ROCm workloads. The step removes the images it pulled and
+built when it finishes.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VLLM_COMMIT` | newest nightly | Pin the nightly (full SHA, 2026-10-12 or later, since the selector is fetched at it). |
-| `NIGHTLY_REPO` | `vllm/vllm-openai-rocm` | Nightly repo to overlay onto. |
-| `OVERLAY_BASE_IMAGE` | derived | Override the base image (skips the lookup). |
-| `IMAGE_TAG` | `nightly-aiter-<aiter-sha>-vllm-<vllm-sha>` | Override the tag. |
+| `VLLM_COMMIT` | newest nightly | Pin the nightly (full 40-character sha, 2026-10-12 or later, since the selector is fetched at it). |
 | `PUSH_IMAGE` | `true` | `false` builds only. Ignored when `TRIGGER_PERF_EVAL=true`. |
-| `PERF_EVAL_BRANCH` | `micah/migrate-vllm-dashboard-nightly` | perf-eval branch with the nightly-dashboard work. |
+| `PERF_EVAL_RUN_TYPE` | `aiter-nightly` | Run label for the dashboard. |
 
 The other perf-eval variables apply as above.
 

@@ -50,7 +50,6 @@ curl -fsSL --retry 3 -o "$selector" "$selector_url" \
   || fail 1 "could not fetch the wheel selector" "${selector_url}"
 
 if [[ "$PUSH_IMAGE" == "true" ]]; then
-  # Set on this step in pipeline.aiter-nightly.yml.
   echo "--- :docker: Logging in to Docker Hub as ${DOCKERHUB_USER}"
   docker_hub_login "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN_SECRET"
 fi
@@ -82,13 +81,10 @@ aiter_wheel_url="$(head -n 1 <<< "$out")"
 note="$(tail -n +2 <<< "$out")"
 buildkite-agent meta-data set "aiter-wheel-url" "$aiter_wheel_url"
 
-# Tag with the AITER commit in the wheel's name (ae984f5 here):
-#   amd_aiter-0.1.25+rocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
-aiter_wheel_file="${aiter_wheel_url%%#*}"
-aiter_wheel_file="${aiter_wheel_file##*/}"
-aiter_wheel_file="${aiter_wheel_file//%2B/+}"
-if [[ ! "$aiter_wheel_file" =~ [+.]([0-9a-f]{7,40})\.d[0-9]{8} ]]; then
-  fail 1 "could not read the AITER commit" "${aiter_wheel_file}"
+# Tag with the AITER commit in the wheel's name, e.g. ae984f5 in
+#   amd_aiter-0.1.25%2Brocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
+if [[ ! "$aiter_wheel_url" =~ [^0-9a-f]([0-9a-f]{7,40})\.d[0-9]{8} ]]; then
+  fail 1 "could not read the AITER commit" "${aiter_wheel_url}"
 fi
 image_ref="${IMAGE_REPO}:nightly-aiter-${BASH_REMATCH[1]:0:8}-vllm-${vllm_short}"
 # Read by trigger_perf_eval.sh.
@@ -121,7 +117,7 @@ build_cmd=(
 
 if ! "${build_cmd[@]}"; then
   fail 11 "the wheel does not install" \
-    "Installing ${aiter_wheel_file} over ${base_image} failed; see this step's log."
+    "Installing ${aiter_wheel_url} over ${base_image} failed; see this step's log."
 fi
 
 echo "--- :mag: Image summary"
@@ -148,6 +144,6 @@ digest="$(docker image inspect "$image_ref" \
   echo "docker pull ${image_ref}"
   echo '```'
   echo "- vLLM commit: \`${vllm_commit}\`"
-  echo "- AITER wheel: \`${aiter_wheel_file}\`"
+  echo "- AITER wheel: \`${aiter_wheel_url}\`"
   [[ -n "$digest" ]] && echo "- Digest: \`${digest}\`"
 } | buildkite-agent annotate --style success --context "image"

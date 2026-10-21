@@ -6,18 +6,10 @@ set -euo pipefail
 NIGHTLY_REPO="vllm/vllm-openai-rocm"
 VLLM_COMMIT="${VLLM_COMMIT:-}"
 
-# Prints the commit of the newest nightly-<sha> tag, or nothing if there is none.
+# Prints the sha of the newest nightly-<sha> tag, or nothing if there is none.
 latest_nightly_commit() {
-  curl -fsSL "https://hub.docker.com/v2/repositories/${NIGHTLY_REPO}/tags?page_size=100&ordering=last_updated" \
-    | python3 -c '
-import sys, json, re
-pat = re.compile(r"^nightly-([0-9a-f]{40})$")
-for t in json.load(sys.stdin).get("results", []):
-    m = pat.match(t.get("name", ""))
-    if m:
-        print(m.group(1))
-        break
-'
+  curl -fsSL "https://hub.docker.com/v2/repositories/${NIGHTLY_REPO}/tags?name=nightly-&ordering=last_updated&page_size=100" \
+    | grep -oP '"nightly-\K[0-9a-f]{40}(?=")' | head -n 1
 }
 
 if [[ -n "$VLLM_COMMIT" ]]; then

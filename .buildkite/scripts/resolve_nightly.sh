@@ -2,23 +2,36 @@
 # Pin the vllm/vllm-openai-rocm nightly to overlay: VLLM_COMMIT if set, else the
 # newest nightly-<sha> on Docker Hub.
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 NIGHTLY_REPO="vllm/vllm-openai-rocm"
 VLLM_COMMIT="${VLLM_COMMIT:-}"
 
+# Prints the commit of the newest nightly-<sha> tag, or nothing if there is none.
+latest_nightly_commit() {
+  curl -fsSL "https://hub.docker.com/v2/repositories/${NIGHTLY_REPO}/tags?page_size=100&ordering=last_updated" \
+    | python3 -c '
+import sys, json, re
+pat = re.compile(r"^nightly-([0-9a-f]{40})$")
+for t in json.load(sys.stdin).get("results", []):
+    m = pat.match(t.get("name", ""))
+    if m:
+        print(m.group(1))
+        break
+'
+}
+
 if [[ -n "$VLLM_COMMIT" ]]; then
   # Nightlies are tagged with the full sha.
-  if [[ ! "$VLLM_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  if [[ ! "$VLLM_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
     echo "^^^ +++"
-    echo "VLLM_COMMIT must be a full 40-character sha, got '${VLLM_COMMIT}'." >&2
+    echo "VLLM_COMMIT must be a full 40-character lowercase sha, got '${VLLM_COMMIT}'." >&2
     exit 1
   fi
-  vllm_commit="$(printf '%s' "$VLLM_COMMIT" | tr '[:upper:]' '[:lower:]')"
+  vllm_commit="$VLLM_COMMIT"
   echo "--- Using pinned vLLM commit ${vllm_commit}"
 else
   echo "--- Resolving newest ${NIGHTLY_REPO}:nightly-<sha> from Docker Hub"
-  vllm_commit="$(resolve_latest_nightly_commit "$NIGHTLY_REPO" || true)"
+  vllm_commit="$(latest_nightly_commit || true)"
   if [[ -z "$vllm_commit" ]]; then
     echo "^^^ +++"
     echo "Could not find a nightly-<sha> tag on ${NIGHTLY_REPO}." >&2

@@ -12,5 +12,5 @@ RUN python3 -m pip install --no-cache-dir "${AITER_WHEEL_URL}" \
     && python3 -m pip show amd-aiter | grep -i '^Version:'
 
 RUN mkdir -p /app \
-    && printf 'VLLM_COMMIT=%s\nAITER_WHEEL_URL=%s\n' \
+    && printf 'VLLM_COMMIT: %s\nAITER_WHEEL_URL: %s\n' \
        "${VLLM_COMMIT}" "${AITER_WHEEL_URL}" >> /app/versions.txt

@@ -81,12 +81,17 @@ aiter_wheel_url="$(head -n 1 <<< "$out")"
 note="$(tail -n +2 <<< "$out")"
 buildkite-agent meta-data set "aiter-wheel-url" "$aiter_wheel_url"
 
-# Tag with the AITER commit in the wheel's name, e.g. ae984f5 in
-#   amd_aiter-0.1.25%2Brocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
-if [[ ! "$aiter_wheel_url" =~ [^0-9a-f]([0-9a-f]{7,40})\.d[0-9]{8} ]]; then
-  fail 1 "could not read the AITER commit" "${aiter_wheel_url}"
-fi
-image_ref="${IMAGE_REPO}:nightly-aiter-${BASH_REMATCH[1]:0:8}-vllm-${vllm_short}"
+# Tag with the AITER commit, read by the selector's own wheel-name parser so the
+# tag keeps up with any change to how wheels are named.
+aiter_commit="$(docker run --rm -i --entrypoint python3 "$base_image" -P -c '
+import sys, types
+selector = types.ModuleType("selector")
+sys.modules["selector"] = selector
+exec(sys.stdin.read(), selector.__dict__)
+print(selector.wheel_from_url(sys.argv[1]).commit)
+' "$aiter_wheel_url" < "$selector")" \
+  || fail 1 "could not read the AITER commit" "${aiter_wheel_url}"
+image_ref="${IMAGE_REPO}:nightly-aiter-${aiter_commit:0:8}-vllm-${vllm_short}"
 # Read by trigger_perf_eval.sh.
 buildkite-agent meta-data set "image-ref" "$image_ref"
 

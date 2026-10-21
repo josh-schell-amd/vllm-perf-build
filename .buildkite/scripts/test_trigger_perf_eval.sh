@@ -89,14 +89,14 @@ check "fanout emits one build per workload" \
 check "fanout passes one name per build" \
   "$(workload_line "$(uploaded)")" 'WORKLOADS: "a"|WORKLOADS: "b"|WORKLOADS: "c"|'
 
-# The image and branch still ride along.
-run env PERF_EVAL_WORKLOADS="a" PERF_EVAL_BRANCH="some/branch"
+# The image goes to perf-eval's ROCm workloads only, on perf-eval's main.
+run env PERF_EVAL_WORKLOADS="a"
 check "image is passed as the ROCm image" \
   "$(grep -c 'VLLM_IMAGE_ROCM: "rocm/vllm-dev:pr-52052-73b53742"' <<<"$(uploaded)")" "1"
 check "image is not offered to CUDA workloads" \
   "$(grep -cE '^\s+VLLM_IMAGE:' <<<"$(uploaded)")" "0"
-check "branch is passed through" \
-  "$(grep -c 'branch: "some/branch"' <<<"$(uploaded)")" "1"
+check "perf-eval runs from main" \
+  "$(grep -c 'branch: "main"' <<<"$(uploaded)")" "1"
 
 # A trigger step forwards only the variables it names, so the run type has to
 # be written into the downstream build explicitly.

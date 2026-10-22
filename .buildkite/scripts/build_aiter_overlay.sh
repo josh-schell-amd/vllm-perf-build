@@ -81,17 +81,10 @@ aiter_wheel_url="$(head -n 1 <<< "$out")"
 note="$(tail -n +2 <<< "$out")"
 buildkite-agent meta-data set "aiter-wheel-url" "$aiter_wheel_url"
 
-# Put the AITER commit in the tag. Wheel names carry it just before the build
-# date, wherever that pair sits among the other fields:
-#
-#   amd_aiter-0.1.25%2Brocm7.2.3.torch2.12.ae984f5.d20261008-cp312-cp312-linux_x86_64.whl
-#                                          ^^^^^^^ ^^^^^^^^^
-#                                          commit  build date
-#
-#   -> rocm/vllm-dev:nightly-aiter-ae984f5-vllm-73b53742
-#
-# The tag is only a label (the image records the full wheel URL), so a name
-# without the pair gives rocm/vllm-dev:nightly-aiter-vllm-73b53742 instead.
+# Put the AITER commit (the field before .d<date>) in the tag, so the tag shows
+# which AITER is inside and a new AITER on the same vLLM nightly gets its own tag:
+#   amd_aiter-0.1.25%2Brocm7.2.3.torch2.12.ae984f5.d20261008-cp312-....whl
+#   -> nightly-aiter-ae984f5-vllm-73b53742  (nightly-aiter-vllm-... if none)
 commit_then_date='[^0-9a-f]([0-9a-f]{7,40})\.d[0-9]{8}'
 aiter_part="aiter"
 if [[ "$aiter_wheel_url" =~ $commit_then_date ]]; then
